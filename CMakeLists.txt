@@ -65,7 +65,7 @@ if(APPLE)
   target_compile_definitions(rplidar_sdk PRIVATE _MACOS)
 endif()
 if(WIN32)
-  target_compile_definitions(rplidar_sdk PUBLIC WIN32 WIN64 NOMINMAX _WIN32_WINNT=0x0A00 WINVER=0x0A00)
+  target_compile_definitions(rplidar_sdk PUBLIC WIN32 WIN64 NOMINMAX= _WIN32_WINNT=0x0A00 WINVER=0x0A00)
   target_link_libraries(rplidar_sdk PUBLIC ws2_32 winmm)
 endif()
 
