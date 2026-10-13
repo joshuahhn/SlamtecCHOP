@@ -1,0 +1,331 @@
+diff --git a/sdk/include/sl_lidar_cmd.h b/sdk/include/sl_lidar_cmd.h
+index bd3f8d2..458dad6 100644
+--- a/sdk/include/sl_lidar_cmd.h
++++ b/sdk/include/sl_lidar_cmd.h
+@@ -324 +324 @@ typedef struct _sl_lidar_response_get_lidar_conf
+-    sl_u8  payload[0];
++    sl_u8  payload[1]; // trailing payload; wire header is offsetof(payload)
+diff --git a/sdk/include/sl_lidar_protocol.h b/sdk/include/sl_lidar_protocol.h
+index a9a10c1..ed9b04a 100644
+--- a/sdk/include/sl_lidar_protocol.h
++++ b/sdk/include/sl_lidar_protocol.h
+@@ -66 +66 @@ typedef struct sl_lidar_cmd_packet_t
+-    sl_u8 data[0];
++    sl_u8 data[1]; // trailing payload; wire header is offsetof(data)
+diff --git a/sdk/src/arch/linux/net_serial.cpp b/sdk/src/arch/linux/net_serial.cpp
+index 2bec556..d4c5876 100644
+--- a/sdk/src/arch/linux/net_serial.cpp
++++ b/sdk/src/arch/linux/net_serial.cpp
+@@ -91 +91,3 @@ bool raw_serial::bind(const char * portname, uint32_t baudrate, uint32_t flags)
+-    strncpy(_portName, portname, sizeof(_portName));
++    const size_t length = strlen(portname);
++    if (length >= sizeof(_portName)) return false;
++    memcpy(_portName, portname, length + 1);
+diff --git a/sdk/src/arch/macOS/net_serial.cpp b/sdk/src/arch/macOS/net_serial.cpp
+index d1859fa..d4c0731 100644
+--- a/sdk/src/arch/macOS/net_serial.cpp
++++ b/sdk/src/arch/macOS/net_serial.cpp
+@@ -65 +65,3 @@ bool raw_serial::bind(const char * portname, uint32_t baudrate, uint32_t flags)
+-    strncpy(_portName, portname, sizeof(_portName));
++    const size_t length = strlen(portname);
++    if (length >= sizeof(_portName)) return false;
++    memcpy(_portName, portname, length + 1);
+@@ -127 +129 @@ bool raw_serial::open(const char * portname, uint32_t baudrate, uint32_t flags)
+-    clearDTR();
++    // Motor DTR is applied after model/capability discovery, not on port open.
+@@ -153 +155 @@ int raw_serial::senddata(const unsigned char * data, size_t size)
+-        if (ans == -1) return tx_len;
++        if (ans <= 0) return static_cast<int>(tx_len);
+diff --git a/sdk/src/arch/win32/arch_win32.h b/sdk/src/arch/win32/arch_win32.h
+index 3ae6655..0918877 100644
+--- a/sdk/src/arch/win32/arch_win32.h
++++ b/sdk/src/arch/win32/arch_win32.h
+@@ -37,2 +36,0 @@
+-#pragma warning (disable: 4996)
+-#define _CRT_SECURE_NO_WARNINGS
+diff --git a/sdk/src/arch/win32/net_serial.cpp b/sdk/src/arch/win32/net_serial.cpp
+index f1fe025..2f74ab0 100644
+--- a/sdk/src/arch/win32/net_serial.cpp
++++ b/sdk/src/arch/win32/net_serial.cpp
+@@ -65 +65,3 @@ bool raw_serial::bind(const char * portname, _u32 baudrate, _u32 flags)
+-    strncpy(_portName, portname, sizeof(_portName));
++    const size_t length = strlen(portname);
++    if (length >= sizeof(_portName)) return false;
++    memcpy(_portName, portname, length + 1);
+@@ -75 +77,2 @@ bool raw_serial::open(const char * portname, _u32 baudrate, _u32 flags)
+-    mbstowcs(wportname, portname, sizeof(wportname) / sizeof(wchar_t));
++    if (!MultiByteToWideChar(CP_UTF8, 0, portname, -1, wportname,
++                            sizeof(wportname) / sizeof(wchar_t))) return false;
+@@ -136 +139 @@ bool raw_serial::open(const char * portname, _u32 baudrate, _u32 flags)
+-    clearDTR();
++    // Motor DTR is applied after model/capability discovery, not on port open.
+@@ -163,3 +166,11 @@ int raw_serial::senddata(const unsigned char * data, size_t size)
+-    if(!WriteFile(_serial_handle, data, (DWORD)size, &w_len, &_wo))
+-        if(GetLastError() != ERROR_IO_PENDING)
+-            w_len = ANS_DEV_ERR;
++    ResetEvent(_wo.hEvent);
++    if (!WriteFile(_serial_handle, data, (DWORD)size, &w_len, &_wo)) {
++        if (GetLastError() != ERROR_IO_PENDING) return ANS_DEV_ERR;
++        if (WaitForSingleObject(_wo.hEvent, 100) != WAIT_OBJECT_0) {
++            CancelIoEx(_serial_handle, &_wo);
++            // Retire the operation before the caller releases its transmit buffer.
++            GetOverlappedResult(_serial_handle, &_wo, &w_len, TRUE);
++            return ANS_DEV_ERR;
++        }
++        if (!GetOverlappedResult(_serial_handle, &_wo, &w_len, FALSE)) return ANS_DEV_ERR;
++    }
+@@ -175,0 +187 @@ int raw_serial::recvdata(unsigned char * data, size_t size)
++    ResetEvent(_ro.hEvent);
+@@ -179,0 +192,5 @@ int raw_serial::recvdata(unsigned char * data, size_t size)
++            if (WaitForSingleObject(_ro.hEvent, 100) != WAIT_OBJECT_0) {
++                CancelIoEx(_serial_handle, &_ro);
++                GetOverlappedResult(_serial_handle, &_ro, &r_len, TRUE);
++                return ANS_DEV_ERR;
++            }
+@@ -182,2 +199 @@ int raw_serial::recvdata(unsigned char * data, size_t size)
+-                if(GetLastError() != ERROR_IO_INCOMPLETE)
+-                    r_len = 0;
++                return ANS_DEV_ERR;
+@@ -243,0 +260,2 @@ int raw_serial::waitfordata(size_t data_count, _u32 timeout, size_t * returned_s
++    *returned_size = 0;
++    const ULONGLONG started = GetTickCount64();
+@@ -255,0 +274,3 @@ int raw_serial::waitfordata(size_t data_count, _u32 timeout, size_t * returned_s
++        const ULONGLONG elapsed = GetTickCount64() - started;
++        if (elapsed >= timeout) return ANS_TIMEOUT;
++        const DWORD remaining = static_cast<DWORD>(timeout - elapsed);
+@@ -256,0 +278 @@ int raw_serial::waitfordata(size_t data_count, _u32 timeout, size_t * returned_s
++        ResetEvent(_wait_o.hEvent);
+@@ -262 +284 @@ int raw_serial::waitfordata(size_t data_count, _u32 timeout, size_t * returned_s
+-                if (WaitForSingleObject(_wait_o.hEvent, timeout) == WAIT_TIMEOUT)
++                if (WaitForSingleObject(_wait_o.hEvent, remaining) != WAIT_OBJECT_0)
+@@ -263,0 +286,3 @@ int raw_serial::waitfordata(size_t data_count, _u32 timeout, size_t * returned_s
++                    // WaitCommEvent references the stack msk until retired.
++                    CancelIoEx(_serial_handle, &_wait_o);
++                    GetOverlappedResult(_serial_handle, &_wait_o, &length, TRUE);
+@@ -268 +293,2 @@ int raw_serial::waitfordata(size_t data_count, _u32 timeout, size_t * returned_s
+-                GetOverlappedResult(_serial_handle, &_wait_o, &length, TRUE);
++                if (!GetOverlappedResult(_serial_handle, &_wait_o, &length, FALSE))
++                    return ANS_DEV_ERR;
+@@ -333 +359 @@ void raw_serial::_init()
+-    _co.ReadIntervalTimeout = 0;
++    _co.ReadIntervalTimeout = MAXDWORD;
+@@ -337 +363 @@ void raw_serial::_init()
+-    _co.WriteTotalTimeoutConstant = 0;
++    _co.WriteTotalTimeoutConstant = 100;
+diff --git a/sdk/src/dataunpacker/dataunpacker.cpp b/sdk/src/dataunpacker/dataunpacker.cpp
+index 74680c0..8933dc4 100644
+--- a/sdk/src/dataunpacker/dataunpacker.cpp
++++ b/sdk/src/dataunpacker/dataunpacker.cpp
+@@ -40,0 +41 @@
++#include <mutex>
+@@ -114,0 +116 @@ public:
++        std::lock_guard<std::recursive_mutex> lock(_mutex);
+@@ -123,0 +126 @@ public:
++        std::lock_guard<std::recursive_mutex> lock(_mutex);
+@@ -150,0 +154 @@ public:
++        std::lock_guard<std::recursive_mutex> lock(_mutex);
+@@ -158,0 +163 @@ public:
++        std::lock_guard<std::recursive_mutex> lock(_mutex);
+@@ -164,0 +170 @@ public:
++        std::lock_guard<std::recursive_mutex> lock(_mutex);
+@@ -171,0 +178 @@ public:
++        std::lock_guard<std::recursive_mutex> lock(_mutex);
+@@ -217,0 +225 @@ protected:
++	std::recursive_mutex _mutex;
+diff --git a/sdk/src/sl_async_transceiver.cpp b/sdk/src/sl_async_transceiver.cpp
+index c8033a5..c44a523 100644
+--- a/sdk/src/sl_async_transceiver.cpp
++++ b/sdk/src/sl_async_transceiver.cpp
+@@ -204,2 +203,0 @@ u_result AsyncTransceiver::openChannelAndBind(IChannel* channel)
+-        Result<nullptr_t> ans = SL_RESULT_OK;
+-
+@@ -255 +253 @@ void AsyncTransceiver::unbindAndClose()
+-        delete [] *itr;
++        delete *itr;
+@@ -290 +288 @@ u_result AsyncTransceiver::sendMessage(message_autoptr_t& msg)
+-        if (txSize < 0) ans = RESULT_OPERATION_FAIL;
++        if (txSize < 0 || static_cast<size_t>(txSize) != requiredBufferSize) ans = RESULT_OPERATION_FAIL;
+@@ -330,0 +329,8 @@ sl_result AsyncTransceiver::_proc_rxThread()
++        while (_isWorking) {
++            _rxLocker.lock();
++            const bool full = _rxQueue.size() >= 8;
++            _rxLocker.unlock();
++            if (!full) break;
++            delay(1);
++        }
++        if (!_isWorking) break;
+@@ -335 +341,7 @@ sl_result AsyncTransceiver::_proc_rxThread()
+-        decodeBuffer->size = _bindedChannel->read(decodeBuffer->data, hintedSize);
++        const int received = _bindedChannel->read(decodeBuffer->data, hintedSize);
++        if (received <= 0 || static_cast<size_t>(received) > hintedSize) {
++            delete decodeBuffer;
++            if (_isWorking) _codec.onChannelError(RESULT_OPERATION_FAIL);
++            break;
++        }
++        decodeBuffer->size = static_cast<size_t>(received);
+@@ -393 +405,4 @@ sl_result AsyncTransceiver::_proc_decoderThread()
+-        assert(!_rxQueue.empty());
++        if (_rxQueue.empty()) {
++            _rxLocker.unlock();
++            continue;
++        }
+diff --git a/sdk/src/sl_async_transceiver.h b/sdk/src/sl_async_transceiver.h
+index 75774e8..e8dab4d 100644
+--- a/sdk/src/sl_async_transceiver.h
++++ b/sdk/src/sl_async_transceiver.h
+@@ -33,0 +34 @@
++#include <atomic>
+@@ -143,2 +144,2 @@ protected:
+-	bool _isWorking;
+-	_u32 _workingFlag;
++	std::atomic<bool> _isWorking;
++	std::atomic<_u32> _workingFlag;
+diff --git a/sdk/src/sl_lidar_driver.cpp b/sdk/src/sl_lidar_driver.cpp
+index 4fd719c..f238086 100644
+--- a/sdk/src/sl_lidar_driver.cpp
++++ b/sdk/src/sl_lidar_driver.cpp
+@@ -533,0 +534,2 @@ namespace sl {
++                // Bound both metadata memory and setup work for a malformed device reply.
++                if (modeCount == 0 || modeCount > 32) return SL_RESULT_INVALID_DATA;
+@@ -564 +566 @@ namespace sl {
+-            ans = checkSupportConfigCommands(lidarSupportConfigCmds);
++            ans = checkSupportConfigCommands(lidarSupportConfigCmds, timeoutInMs);
+@@ -628 +630 @@ namespace sl {
+-                ans = getLidarSampleDuration(outUsedScanMode.us_per_sample, outUsedScanMode.id);
++                ans = getLidarSampleDuration(outUsedScanMode.us_per_sample, outUsedScanMode.id, timeout);
+@@ -630 +632 @@ namespace sl {
+-                ans = getMaxDistance(outUsedScanMode.max_distance, outUsedScanMode.id);
++                ans = getMaxDistance(outUsedScanMode.max_distance, outUsedScanMode.id, timeout);
+@@ -632 +634 @@ namespace sl {
+-                ans = getScanModeAnsType(outUsedScanMode.ans_type, outUsedScanMode.id);
++                ans = getScanModeAnsType(outUsedScanMode.ans_type, outUsedScanMode.id, timeout);
+@@ -634 +636 @@ namespace sl {
+-                ans = getScanModeName(outUsedScanMode.scan_mode, sizeof(outUsedScanMode.scan_mode), outUsedScanMode.id);
++                ans = getScanModeName(outUsedScanMode.scan_mode, sizeof(outUsedScanMode.scan_mode), outUsedScanMode.id, timeout);
+@@ -647 +649 @@ namespace sl {
+-                strcpy(outUsedScanMode.scan_mode, "Standard");
++                memcpy(outUsedScanMode.scan_mode, "Standard", sizeof("Standard"));
+@@ -653 +655,2 @@ namespace sl {
+-            startMotor();
++            ans = startMotor(timeout);
++            if (!ans) return ans;
+@@ -676 +679 @@ namespace sl {
+-            Result<nullptr_t> ans = checkSupportConfigCommands(ifSupportLidarConf);
++            Result<nullptr_t> ans = checkSupportConfigCommands(ifSupportLidarConf, timeout);
+@@ -697 +700 @@ namespace sl {
+-            ans = checkSupportConfigCommands(ifSupportLidarConf);
++            ans = checkSupportConfigCommands(ifSupportLidarConf, timeout);
+@@ -704 +707 @@ namespace sl {
+-                ans = getLidarSampleDuration(outUsedScanMode->us_per_sample, outUsedScanMode->id);
++                ans = getLidarSampleDuration(outUsedScanMode->us_per_sample, outUsedScanMode->id, timeout);
+@@ -707 +710 @@ namespace sl {
+-                ans = getMaxDistance(outUsedScanMode->max_distance, outUsedScanMode->id);
++                ans = getMaxDistance(outUsedScanMode->max_distance, outUsedScanMode->id, timeout);
+@@ -710 +713 @@ namespace sl {
+-                ans = getScanModeAnsType(outUsedScanMode->ans_type, outUsedScanMode->id);
++                ans = getScanModeAnsType(outUsedScanMode->ans_type, outUsedScanMode->id, timeout);
+@@ -713 +716 @@ namespace sl {
+-                ans = getScanModeName(outUsedScanMode->scan_mode, sizeof(outUsedScanMode->scan_mode), outUsedScanMode->id);
++                ans = getScanModeName(outUsedScanMode->scan_mode, sizeof(outUsedScanMode->scan_mode), outUsedScanMode->id, timeout);
+@@ -726 +729 @@ namespace sl {
+-                    strcpy(outUsedScanMode->scan_mode, "Express");
++                    memcpy(outUsedScanMode->scan_mode, "Express", sizeof("Express"));
+@@ -740 +743,2 @@ namespace sl {
+-            startMotor();
++            ans = startMotor(timeout);
++            if (!ans) return ans;
+@@ -839 +843 @@ namespace sl {
+-            support = MotorCtrlSupportNone;
++            support = _isSupportingMotorCtrl = MotorCtrlSupportNone;
+@@ -844 +848 @@ namespace sl {
+-                ans = getDeviceInfo(devInfo, 500);
++                ans = getDeviceInfo(devInfo, timeout);
+@@ -848 +852 @@ namespace sl {
+-                        support = MotorCtrlSupportRpm;
++                        support = _isSupportingMotorCtrl = MotorCtrlSupportRpm;
+@@ -870 +874 @@ namespace sl {
+-                        support = MotorCtrlSupportPwm;
++                        support = _isSupportingMotorCtrl = MotorCtrlSupportPwm;
+@@ -952 +956 @@ namespace sl {
+-            if (0 == len) return SL_RESULT_INVALID_DATA;
++            if (!macAddrArray || len != 6) return SL_RESULT_INVALID_DATA;
+@@ -1158 +1162 @@ namespace sl {
+-        sl_result startMotor()
++        sl_result startMotor(sl_u32 timeout = DEFAULT_TIMEOUT)
+@@ -1160 +1164,14 @@ namespace sl {
+-            return setMotorSpeed(DEFAULT_MOTOR_SPEED);
++            // DTR is a legacy A-series motor mechanism. A modern device reporting
++            // no motor control must not receive legacy DTR or speed commands.
++            if (_isSupportingMotorCtrl == MotorCtrlSupportNone) {
++                if ((_cached_DevInfo.model >> 4) >= NEWDESIGN_MINUM_MAJOR_ID)
++                    return SL_RESULT_OK;
++                return setMotorSpeed(600); // nonzero means DTR motor-on, not RPM
++            }
++            sl_lidar_response_desired_rot_speed_t desired = {};
++            sl_result ans = getDesiredSpeed(desired, timeout);
++            sl_u16 speed = 600; // retain upstream fallback for legacy firmware
++            if (SL_IS_OK(ans)) {
++                speed = _isSupportingMotorCtrl == MotorCtrlSupportPwm ? desired.pwm_ref : desired.rpm;
++            }
++            return setMotorSpeed(speed);
+@@ -1170,0 +1188,2 @@ namespace sl {
++            if (answer.size() < sizeof(sl_lidar_response_desired_rot_speed_t))
++                return SL_RESULT_INVALID_DATA;
+@@ -1203 +1222 @@ namespace sl {
+-            ans = getLidarConf(SL_LIDAR_CONF_SCAN_MODE_COUNT, answer);
++            ans = getLidarConf(SL_LIDAR_CONF_SCAN_MODE_COUNT, answer, nullptr, 0, timeoutInMs);
+@@ -1374 +1393,2 @@ namespace sl {
+-            size_t len = std::min<size_t>(answer.size(), stringSize);
++            if (stringSize == 0) return SL_RESULT_INVALID_DATA;
++            size_t len = std::min<size_t>(answer.size(), stringSize - 1);
+@@ -1377,0 +1398 @@ namespace sl {
++            modeName[len] = '\0';
+@@ -1425 +1446 @@ namespace sl {
+-                sprintf(stringBuffer, "A%dM%d", (modelID >> 4), (modelID & 0xF));
++                snprintf(stringBuffer, sizeof(stringBuffer), "A%dM%d", (modelID >> 4), (modelID & 0xF));
+@@ -1430 +1451 @@ namespace sl {
+-                sprintf(stringBuffer, "S%dM%d", (modelID >> 4) - (TOF_S_SERIAL_MINUM_MAJOR_ID)+1, (modelID & 0xF));
++                snprintf(stringBuffer, sizeof(stringBuffer), "S%dM%d", (modelID >> 4) - (TOF_S_SERIAL_MINUM_MAJOR_ID)+1, (modelID & 0xF));
+@@ -1435 +1456 @@ namespace sl {
+-                sprintf(stringBuffer, "T%dM%d", (modelID >> 4) - (TOF_T_SERIAL_MINUM_MAJOR_ID)+1, (modelID & 0xF));
++                snprintf(stringBuffer, sizeof(stringBuffer), "T%dM%d", (modelID >> 4) - (TOF_T_SERIAL_MINUM_MAJOR_ID)+1, (modelID & 0xF));
+@@ -1440 +1461 @@ namespace sl {
+-                sprintf(stringBuffer, "M%dM%d", (modelID >> 4) - (TOF_M_SERIAL_MINUM_MAJOR_ID)+1, (modelID & 0xF));
++                snprintf(stringBuffer, sizeof(stringBuffer), "M%dM%d", (modelID >> 4) - (TOF_M_SERIAL_MINUM_MAJOR_ID)+1, (modelID & 0xF));
+@@ -1445 +1466 @@ namespace sl {
+-                sprintf(stringBuffer, "C%dM%d", (modelID >> 4) - (TOF_C_SERIAL_MINUM_MAJOR_ID)+1, (modelID & 0xF));
++                snprintf(stringBuffer, sizeof(stringBuffer), "C%dM%d", (modelID >> 4) - (TOF_C_SERIAL_MINUM_MAJOR_ID)+1, (modelID & 0xF));
+@@ -1451 +1472 @@ namespace sl {
+-                sprintf(stringBuffer, "unknown(%x)", modelID);
++                snprintf(stringBuffer, sizeof(stringBuffer), "unknown(%x)", modelID);
+@@ -1615,0 +1637,2 @@ namespace sl {
++            // Never hold the response lock while waiting for the codec/decoder lock.
++            _disableDataGrabbing();
+@@ -1619 +1641,0 @@ namespace sl {
+-            _disableDataGrabbing();
+@@ -1663,0 +1686 @@ namespace sl {
++            _data_locker.lock();
+@@ -1665 +1687,0 @@ namespace sl {
+-                _data_locker.lock();
+@@ -1668 +1689,0 @@ namespace sl {
+-                _data_locker.unlock();
+@@ -1669,0 +1691 @@ namespace sl {
++            _data_locker.unlock();
+diff --git a/sdk/src/sl_lidarprotocol_codec.cpp b/sdk/src/sl_lidarprotocol_codec.cpp
+index a629000..15d30f5 100644
+--- a/sdk/src/sl_lidarprotocol_codec.cpp
++++ b/sdk/src/sl_lidarprotocol_codec.cpp
+@@ -185,0 +186,6 @@ void RPLidarProtocolCodec::onDecodeData(const void* buffer, size_t size)
++                // Bound allocation from an untrusted wire header (normal packets are much smaller).
++                if (_decodingMessage.len > 65536) {
++                    _working_states = STATUS_WAIT_SYNC1;
++                    _rx_pos = 0;
++                    break;
++                }
+diff --git a/sdk/src/sl_serial_channel.cpp b/sdk/src/sl_serial_channel.cpp
+index f7faf3c..3510933 100644
+--- a/sdk/src/sl_serial_channel.cpp
++++ b/sdk/src/sl_serial_channel.cpp
+@@ -82 +82 @@ namespace sl {
+-            size_t size_holder;
++            size_t size_holder = 0;

@@ -1,9 +1,10 @@
 #pragma once
 
-class OP_Inputs;
-class OP_ParameterManager;
+namespace TD { class OP_Inputs; class OP_ParameterManager; }
+using TD::OP_Inputs;
+using TD::OP_ParameterManager;
 
-#pragma region ParNames and ParLabels
+
 
 // Names of the parameters
 
@@ -50,15 +51,15 @@ constexpr static char CoordsLabel[] = "Coordinate System";
 constexpr static char PrecisionName[] = "Precision";
 constexpr static char PrecisionLabel[] = "Precision";
 
-constexpr static char QualityName[] = "Qualitycheck";
+constexpr static char QualityName[] = "Quality";
 constexpr static char QualityLabel[] = "Quality Check";
 
 constexpr static char DistanceName[] = "Distance";
 constexpr static char DistanceLabel[] = "Distance (m)";
 
-#pragma endregion
 
-#pragma region Menus
+
+
 
 enum class CoordMenuItems
 {
@@ -66,10 +67,10 @@ enum class CoordMenuItems
 	Cartesian
 };
 
-#pragma endregion
 
 
-#pragma region Parameters
+
+
 class Parameters
 {
 public:
@@ -90,4 +91,3 @@ public:
 	static CoordMenuItems	evalCoord(const OP_Inputs* input);
 
 };
-#pragma endregion

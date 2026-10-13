@@ -1,9 +1,13 @@
 #include <string>
+#include <stdexcept>
 #include <array>
-#include "CPlusPlus_Common.h"
+#include "TDHeaders.h"
 #include "Parameters.h"
+#include "drvlogic/Receiver.h"
 
-#pragma region Evals
+using namespace TD;
+
+
 
 int
 Parameters::evalActive(const OP_Inputs* input)
@@ -23,17 +27,17 @@ Parameters::evalQuality(const OP_Inputs* input)
 	return input->getParInt(QualityName);
 }
 
-int                                                      
-Parameters::evalConnectionType(const OP_Inputs* input)         
-{                                                        
-	return input->getParInt(ConnectName);           
+int
+Parameters::evalConnectionType(const OP_Inputs* input)
+{
+	return input->getParInt(ConnectName);
 }
 
-int                                                             
-Parameters::evalNetworkType(const OP_Inputs* input)          
-{                                                               
-	return input->getParInt(NetworkTypeName);                       
-}                                                               
+int
+Parameters::evalNetworkType(const OP_Inputs* input)
+{
+	return input->getParInt(NetworkTypeName);
+}
 
 int
 Parameters::evalMotorSpeed(const OP_Inputs* input)
@@ -53,14 +57,14 @@ Parameters::evalCoord(const OP_Inputs* input)
 	return static_cast<CoordMenuItems>(input->getParInt(CoordsName));
 }
 
-#pragma endregion
 
-#pragma region Setup
+
+
 
 void
 Parameters::setup(OP_ParameterManager* manager)
 {
-	
+
 	// is active
 	{
 		OP_NumericParameter isActive;
@@ -71,7 +75,7 @@ Parameters::setup(OP_ParameterManager* manager)
 		isActive.defaultValues[0] = 0;
 
 		OP_ParAppendResult res = manager->appendToggle(isActive);
-		assert(res == OP_ParAppendResult::Success);
+		if (res != OP_ParAppendResult::Success) throw std::runtime_error("Cannot create Slamtec parameter");
 	}
 
 	// is standart
@@ -84,7 +88,7 @@ Parameters::setup(OP_ParameterManager* manager)
 		isStandart.defaultValues[0] = 0;
 
 		OP_ParAppendResult res = manager->appendToggle(isStandart);
-		assert(res == OP_ParAppendResult::Success);
+		if (res != OP_ParAppendResult::Success) throw std::runtime_error("Cannot create Slamtec parameter");
 	}
 
 	// Connection type toogle
@@ -97,7 +101,7 @@ Parameters::setup(OP_ParameterManager* manager)
 		isNetwork.defaultValues[0] = 0;
 
 		OP_ParAppendResult res = manager->appendToggle(isNetwork);
-		assert(res == OP_ParAppendResult::Success);
+		if (res != OP_ParAppendResult::Success) throw std::runtime_error("Cannot create Slamtec parameter");
 	}
 
 	// COM Port
@@ -107,11 +111,15 @@ Parameters::setup(OP_ParameterManager* manager)
 		cp.name = PortName;
 		cp.label = PortLabel;
 		cp.page = PageConnectionsName;
-		cp.defaultValue = "COM3";
+		#ifdef _WIN32
+        cp.defaultValue = "COM3";
+#else
+        cp.defaultValue = "/dev/cu.SLAB_USBtoUART";
+#endif
 
 		OP_ParAppendResult res = manager->appendString(cp);
 
-		assert(res == OP_ParAppendResult::Success);
+		if (res != OP_ParAppendResult::Success) throw std::runtime_error("Cannot create Slamtec parameter");
 	}
 
 	// Bandwitch
@@ -123,34 +131,27 @@ Parameters::setup(OP_ParameterManager* manager)
 		bw.page = PageConnectionsName;
 		bw.defaultValue = "1000000";
 
-		std::array<const char*, 4> Names =
-		{
-			"115200", "256000", "460800", "1000000"
-		};
-		std::array<const char*, 4> Labels =
-		{
-			"115200", "256000", "460800", "1000000"
-		};
-		OP_ParAppendResult res = manager->appendMenu(bw, int(Names.size()), Names.data(), Labels.data());
+        auto names = slamtec::BaudNames;
+        const OP_ParAppendResult res = manager->appendMenu(
+            bw, static_cast<int>(names.size()), names.data(), names.data());
 
-		//OP_ParAppendResult res = manager->appendMenu(sp, int(Names.size()), names, labels);
-		assert(res == OP_ParAppendResult::Success);
+		if (res != OP_ParAppendResult::Success) throw std::runtime_error("Cannot create Slamtec parameter");
 	}
 
-	// Connection type toogle                                           
-	{                                                                   
-		OP_NumericParameter isUdp;                                  
-                                                                    
-		isUdp.name = NetworkTypeName;                                   
-		isUdp.label = NetworkTypeLabel;                                 
-		isUdp.page = PageConnectionsName;                           
-		isUdp.defaultValues[0] = 1;                                 
-                                                                    
-		OP_ParAppendResult res = manager->appendToggle(isUdp);      
-		assert(res == OP_ParAppendResult::Success);                     
-	}                                                                   
+	// Connection type toogle
+	{
+		OP_NumericParameter isUdp;
 
-	
+		isUdp.name = NetworkTypeName;
+		isUdp.label = NetworkTypeLabel;
+		isUdp.page = PageConnectionsName;
+		isUdp.defaultValues[0] = 1;
+
+		OP_ParAppendResult res = manager->appendToggle(isUdp);
+		if (res != OP_ParAppendResult::Success) throw std::runtime_error("Cannot create Slamtec parameter");
+	}
+
+
 	// IP Address
 	{
 		OP_StringParameter ip;
@@ -162,7 +163,7 @@ Parameters::setup(OP_ParameterManager* manager)
 
 		OP_ParAppendResult res = manager->appendString(ip);
 
-		assert(res == OP_ParAppendResult::Success);
+		if (res != OP_ParAppendResult::Success) throw std::runtime_error("Cannot create Slamtec parameter");
 	}
 
 	// Network port
@@ -176,13 +177,13 @@ Parameters::setup(OP_ParameterManager* manager)
 
 		OP_ParAppendResult res = manager->appendString(np);
 
-		assert(res == OP_ParAppendResult::Success);
+		if (res != OP_ParAppendResult::Success) throw std::runtime_error("Cannot create Slamtec parameter");
 	}
 
 	// Precision
 	{
 		OP_NumericParameter	np;
-	
+
 		np.name = PrecisionName;
 		np.label = PrecisionLabel;
 		np.page = PageOutputName;
@@ -193,9 +194,9 @@ Parameters::setup(OP_ParameterManager* manager)
 		np.clampMins[0] = true;
 		np.clampMaxes[0] = true;
 		np.defaultValues[0] = 2;
-		
+
 		OP_ParAppendResult res = manager->appendInt(np);
-		assert(res == OP_ParAppendResult::Success);
+		if (res != OP_ParAppendResult::Success) throw std::runtime_error("Cannot create Slamtec parameter");
 	}
 
 	// quality check
@@ -208,13 +209,13 @@ Parameters::setup(OP_ParameterManager* manager)
 		isQuality.defaultValues[0] = 0;
 
 		OP_ParAppendResult res = manager->appendToggle(isQuality);
-		assert(res == OP_ParAppendResult::Success);
+		if (res != OP_ParAppendResult::Success) throw std::runtime_error("Cannot create Slamtec parameter");
 	}
 
 	// Distance
 	{
 		OP_NumericParameter	np;
-	
+
 		np.name = DistanceName;
 		np.label = DistanceLabel;
 		np.page = PageOutputName;
@@ -226,11 +227,12 @@ Parameters::setup(OP_ParameterManager* manager)
 		np.minValues[1] = 0;
 		np.maxValues[1] = 40;
 		np.clampMins[1] = true;
-		
+        np.defaultValues[1] = 40;
+
 		OP_ParAppendResult res = manager->appendFloat(np, 2);
-		assert(res == OP_ParAppendResult::Success);
+		if (res != OP_ParAppendResult::Success) throw std::runtime_error("Cannot create Slamtec parameter");
 	}
-	
+
 	// Coordinate system
 	{
 		OP_StringParameter sp;
@@ -249,9 +251,7 @@ Parameters::setup(OP_ParameterManager* manager)
 			"Polar", "Cartesian"
 		};
 		OP_ParAppendResult res = manager->appendMenu(sp, int(Names.size()), Names.data(), Labels.data());
-		
-		assert(res == OP_ParAppendResult::Success);
+
+		if (res != OP_ParAppendResult::Success) throw std::runtime_error("Cannot create Slamtec parameter");
 	}
 }
-
-#pragma endregion
