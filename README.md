@@ -110,10 +110,12 @@ worker ownership, real SDK protocol fixtures for C1/legacy DTR/PWM/RPM,
 normal-scan decoding/overflow, and TCP/UDP loopback. Bundle metadata/exports and
 1000 inactive exported-ABI create/destroy cycles pass outside the TD host.
 
-[GitHub Actions](.github/workflows/build.yml) defines Mac arm64 and Windows MSVC
-x64 build/test/package jobs. **Windows execution is pending** until this branch
-is published and the workflow succeeds. TD-host and all physical-device tests
-are pending. No real-C1 performance improvement or original crash root cause is
+Mac arm64 and Windows x64 build/test/package jobs both passed in
+[GitHub Actions run 38351988988](https://github.com/joshuahhn/SlamtecCHOP/actions/runs/38351988988)
+at code revision `aaf3c52`. The Windows job used **MSVC 19.44.35229.0** and ran the
+same receiver/protocol/loopback test executable. Both jobs uploaded plugin
+artifacts. [The workflow](.github/workflows/build.yml) retains strict checks.
+TD-host and all physical-device tests are pending. No real-C1 performance improvement or original crash root cause is
 claimed. The uncorrected `f26f13b` baud table is broken and is **not a safe C1
 benchmark reference**. Before a physical performance comparison, establish and
 record a working reference with a corrected bounds-checked baud mapping and
